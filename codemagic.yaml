@@ -1,0 +1,45 @@
+workflows:
+  flutter_app_android:
+    name: Build Android APK
+    max_build_duration: 60
+    environment:
+      flutter: stable
+    triggering:
+      events:
+        - push
+      branch_patterns:
+        - pattern: "*"
+          include: true
+          source: true
+    scripts:
+      - name: Ensure Flutter project structure
+        script: |
+          flutter --version
+          flutter create .
+      - name: Get packages
+        script: flutter pub get
+      - name: Build APK
+        script: flutter build apk --release
+    artifacts:
+      - build/app/outputs/flutter-apk/app-release.apk
+
+  flutter_app_windows:
+    name: Build Windows EXE
+    max_build_duration: 60
+    environment:
+      flutter: stable
+    scripts:
+      - name: Enable Windows desktop
+        script: flutter config --enable-windows-desktop
+      - name: Ensure Flutter project structure
+        script: |
+          flutter --version
+          flutter create .
+      - name: Get packages
+        script: flutter pub get
+      - name: Build Windows
+        script: flutter build windows --release
+    artifacts:
+      - build/windows/**/*.msi
+      - build/windows/**/*.zip
+      - build/windows/**/*.exe
