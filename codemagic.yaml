@@ -5,31 +5,25 @@ workflows:
     environment:
       flutter: stable
     scripts:
+      - name: Show Flutter version
+        script: flutter --version
+      - name: Ensure Flutter project structure
+        script: |
+          echo "Listing repo root"
+          ls -la
+          echo "Creating project structure if missing..."
+          if [ ! -f "pubspec.yaml" ]; then
+            echo "pubspec.yaml not found!"; exit 1
+          fi
+          # dacă nu există android/, generează toate folderele necesare
+          if [ ! -d "android" ]; then
+            flutter create .
+          fi
+          echo "Done ensure structure"
+          ls -la
       - name: Get packages
         script: flutter pub get
       - name: Build APK
         script: flutter build apk --release
     artifacts:
       - build/app/outputs/flutter-apk/app-release.apk
-
-  flutter_app_windows:
-    name: Build Windows EXE
-    max_build_duration: 60
-    environment:
-      flutter: stable
-    scripts:
-      - name: Enable Windows desktop
-        script: flutter config --enable-windows-desktop
-      - name: Create missing Windows platform (keeps lib/)
-        script: |
-          if [ ! -d "windows" ]; then
-            flutter create . --platforms=windows
-          fi
-      - name: Get packages
-        script: flutter pub get
-      - name: Build Windows
-        script: flutter build windows --release
-    artifacts:
-      - build/windows/**/*.zip
-      - build/windows/**/*.exe
-      - build/windows/**/*.msi
