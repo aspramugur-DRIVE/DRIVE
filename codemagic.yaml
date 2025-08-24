@@ -27,3 +27,46 @@ workflows:
         script: flutter build apk --release
     artifacts:
       - build/app/outputs/flutter-apk/app-release.apk
+workflows:
+  flutter_app_android:
+    name: Build Android APK
+    max_build_duration: 60
+    environment:
+      flutter: stable
+    scripts:
+      - name: Show Flutter version
+        script: flutter --version
+      - name: Ensure Flutter project structure
+        script: |
+          if [ ! -d "android" ]; then
+            flutter create .
+          fi
+      - name: Get packages
+        script: |
+          flutter clean
+          flutter pub get
+      - name: Build APK (debug)
+        script: flutter build apk --debug --no-shrink
+    artifacts:
+      - build/app/outputs/flutter-apk/app-debug.apk
+
+  flutter_app_windows:
+    name: Build Windows EXE
+    instance_type: windows_x2   # IMPORTANT: mașină Windows
+    max_build_duration: 60
+    environment:
+      flutter: stable
+    scripts:
+      - name: Enable Windows desktop
+        script: flutter config --enable-windows-desktop
+      - name: Ensure project structure
+        script: |
+          if (!(Test-Path windows)) { flutter create . }
+      - name: Get packages
+        script: |
+          flutter clean
+          flutter pub get
+      - name: Build Windows (Release)
+        script: flutter build windows --release
+    artifacts:
+      - build/windows/x64/runner/Release/**
