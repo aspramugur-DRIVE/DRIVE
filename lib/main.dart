@@ -23,49 +23,80 @@ class MyApp extends StatelessWidget {
 class AppState extends ChangeNotifier {
   String role = 'rider'; // rider/driver
   String name = 'Mugurel';
-  String serverUrl = 'http://192.168.0.100:4000'; // <- îl schimbi în aplicație la login
+  String serverUrl = 'http://192.168.0.100:4000'; // îl schimbi la login
   IO.Socket? socket;
   bool registered = false;
 
   bool driverOnline = false;
-  String? driverRideId;
+  int? driverRideId; // <- important: id numeric
   Map<String, dynamic>? driverRide;
   Map<String, dynamic>? riderRide;
   Map<String, dynamic>? stats;
 
   void connect() {
+    // închide orice conexiune veche
     socket?.dispose();
-    socket = IO.io(serverUrl, IO.OptionBuilder()
-        socket = IO.io(serverUrl, IO.OptionBuilder()
-    .setTransports(['websocket','polling'])  // permite și fallback
-    .disableAutoConnect()
-    .build());
+    socket = null;
 
-    socket!.connect();
+    // normalizează URL: fără spații și fără slash la final
+    final url = serverUrl.trim().replaceAll(RegExp(r'\/$'), '');
+
+    // opțiuni valide pentru socket_io_client ^2.0.3+1
+    final opts = IO.OptionBuilder()
+        .setTransports(['websocket', 'polling']) // permite fallback
+        .disableAutoConnect()
+        .build();
+
+    // ATENȚIE: doar 2 argumente (uri, options)
+    socket = IO.io(url, opts);
+
+    // ---- LISTENERS ----
     socket!.onConnect((_) {
       socket!.emit('register', {'role': role, 'name': name});
+      notifyListeners();
     });
-    socket!.on('registered', (_) { registered = true; notifyListeners(); });
-    socket!.on('stats', (data) { stats = Map<String, dynamic>.from(data); notifyListeners(); });
+
+    socket!.onDisconnect((_) => notifyListeners());
+    socket!.onConnectError((err) {
+      debugPrint('connect_error: $err');
+      notifyListeners();
+    });
+    socket!.onError((err) => debugPrint('socket_error: $err'));
+
+    socket!.on('registered', (_) {
+      registered = true;
+      notifyListeners();
+    });
+
+    socket!.on('stats', (data) {
+      stats = Map<String, dynamic>.from(data as Map);
+      notifyListeners();
+    });
 
     socket!.on('ride:update', (data) {
-      riderRide = Map<String, dynamic>.from(data);
+      riderRide = Map<String, dynamic>.from(data as Map);
       notifyListeners();
     });
+
     socket!.on('driver:rideOffer', (data) {
-      driverRide = Map<String, dynamic>.from(data);
-      driverRideId = driverRide!['id'];
+      driverRide = Map<String, dynamic>.from(data as Map);
+      driverRideId = driverRide?['id'] as int?;
       notifyListeners();
     });
+
     socket!.on('driver:rideAssigned', (data) {
-      driverRide = Map<String, dynamic>.from(data);
-      driverRideId = driverRide!['id'];
+      driverRide = Map<String, dynamic>.from(data as Map);
+      driverRideId = driverRide?['id'] as int?;
       notifyListeners();
     });
+
     socket!.on('driver:rideUpdate', (data) {
-      driverRide = Map<String, dynamic>.from(data);
+      driverRide = Map<String, dynamic>.from(data as Map);
       notifyListeners();
     });
+
+    // pornește conexiunea abia după setarea listener-elor
+    socket!.connect();
   }
 
   void setDriverOnline(bool v) {
@@ -105,7 +136,7 @@ class EntryScreen extends StatefulWidget {
 
 class _EntryScreenState extends State<EntryScreen> {
   final nameCtrl = TextEditingController(text: 'Mugurel');
-  final serverCtrl = TextEditingController(text: 'http://192.168.0.100:4000'); // <- IP-ul PC-ului tău
+  final serverCtrl = TextEditingController(text: 'http://192.168.0.100:4000');
   String role = 'rider';
 
   @override
@@ -133,7 +164,10 @@ class _EntryScreenState extends State<EntryScreen> {
               decoration: const InputDecoration(labelText: 'Rol'),
             ),
             const SizedBox(height: 8),
-            TextField(controller: serverCtrl, decoration: const InputDecoration(labelText: 'Server URL (ex: http://IP_PC:4000)')),
+            TextField(
+              controller: serverCtrl,
+              decoration: const InputDecoration(labelText: 'Server URL (ex: http://IP_PC:4000)'),
+            ),
             const SizedBox(height: 16),
             ElevatedButton(
               onPressed: () {
@@ -188,17 +222,21 @@ class _RiderHomeState extends State<RiderHome> {
             const SizedBox(height: 16),
             ElevatedButton(onPressed: () => app.requestRide(pickupCtrl.text, dropCtrl.text), child: const Text('Cere cursă')),
             const SizedBox(height: 16),
-            if (app.riderRide != null) Card(
-              child: Padding(
-                padding: const EdgeInsets.all(12),
-                child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                  Text('Cursă #${app.riderRide!['id'] ?? '-'}', style: const TextStyle(fontWeight: FontWeight.bold)),
-                  Text('Status: ${app.riderRide!['status']}'),
-                  Text('Pickup: ${app.riderRide!['pickup']}'),
-                  Text('Dropoff: ${app.riderRide!['dropoff']}'),
-                ]),
+            if (app.riderRide != null)
+              Card(
+                child: Padding(
+                  padding: const EdgeInsets.all(12),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text('Cursă #${app.riderRide!['id'] ?? '-'}', style: const TextStyle(fontWeight: FontWeight.bold)),
+                      Text('Status: ${app.riderRide!['status']}'),
+                      Text('Pickup: ${app.riderRide!['pickup']}'),
+                      Text('Dropoff: ${app.riderRide!['dropoff']}'),
+                    ],
+                  ),
+                ),
               ),
-            ),
           ],
         ),
       ),
@@ -216,34 +254,41 @@ class DriverHome extends StatelessWidget {
       appBar: AppBar(title: const Text('Șofer - Dispatcher')),
       body: Padding(
         padding: const EdgeInsets.all(16),
-        child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-          Row(children: [
-            const Text('Online'),
-            const SizedBox(width: 8),
-            Switch(value: app.driverOnline, onChanged: (v) => app.setDriverOnline(v)),
-          ]),
-          const SizedBox(height: 8),
-          if (app.stats != null) Text('Rideri: ${app.stats!['ridersTotal']}, Șoferi online: ${app.stats!['driversOnline']}'),
-          const SizedBox(height: 16),
-          if (ride == null) const Text('Aștept cerere...'),
-          if (ride != null) Card(
-            child: Padding(
-              padding: const EdgeInsets.all(12),
-              child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                Text('Cerere #${ride['id']}', style: const TextStyle(fontWeight: FontWeight.bold)),
-                Text('Pickup: ${ride['pickup']}'),
-                Text('Dropoff: ${ride['dropoff']}'),
-                const SizedBox(height: 12),
-                if (ride['status'] == null || ride['status'] == 'searching')
-                  ElevatedButton(onPressed: app.driverAccept, child: const Text('Acceptă')),
-                if (ride['status'] == 'assigned')
-                  ElevatedButton(onPressed: app.startRide, child: const Text('Pornire cursă')),
-                if (ride['status'] == 'in_progress')
-                  ElevatedButton(onPressed: app.completeRide, child: const Text('Finalizează cursa')),
-              ]),
-            ),
-          ),
-        ]),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(children: [
+              const Text('Online'),
+              const SizedBox(width: 8),
+              Switch(value: app.driverOnline, onChanged: (v) => app.setDriverOnline(v)),
+            ]),
+            const SizedBox(height: 8),
+            if (app.stats != null) Text('Rideri: ${app.stats!['ridersTotal']}, Șoferi online: ${app.stats!['driversOnline']}'),
+            const SizedBox(height: 16),
+            if (ride == null) const Text('Aștept cerere...'),
+            if (ride != null)
+              Card(
+                child: Padding(
+                  padding: const EdgeInsets.all(12),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text('Cerere #${ride['id']}', style: const TextStyle(fontWeight: FontWeight.bold)),
+                      Text('Pickup: ${ride['pickup']}'),
+                      Text('Dropoff: ${ride['dropoff']}'),
+                      const SizedBox(height: 12),
+                      if (ride['status'] == null || ride['status'] == 'searching')
+                        ElevatedButton(onPressed: app.driverAccept, child: const Text('Acceptă')),
+                      if (ride['status'] == 'assigned')
+                        ElevatedButton(onPressed: app.startRide, child: const Text('Pornire cursă')),
+                      if (ride['status'] == 'in_progress')
+                        ElevatedButton(onPressed: app.completeRide, child: const Text('Finalizează cursa')),
+                    ],
+                  ),
+                ),
+              ),
+          ],
+        ),
       ),
     );
   }
