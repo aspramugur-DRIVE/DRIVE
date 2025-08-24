@@ -2,31 +2,46 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:socket_io_client/socket_io_client.dart' as IO;
 
-void main() {
-  runApp(const MyApp());
+void main() => runApp(const MyApp());
+
+class MyApp extends StatelessWidget {
+  const MyApp({super.key});
+  @override
+  Widget build(BuildContext context) {
+    return ChangeNotifierProvider(
+      create: (_) => AppState(),
+      child: MaterialApp(
+        title: 'Mini Uber',
+        theme: ThemeData(useMaterial3: true),
+        home: const EntryScreen(),
+      ),
+    );
+  }
 }
 
 class AppState extends ChangeNotifier {
-  String role = 'rider'; // or 'driver'
-  String name = '';
+  String role = 'rider'; // rider/driver
+  String name = 'Mugurel';
+  String serverUrl = 'http://192.168.0.100:4000'; // schimbă cu IP-ul PC-ului tău!
   IO.Socket? socket;
-  bool isRegistered = false;
+  bool registered = false;
 
-  // driver state
+  // driver
   bool driverOnline = false;
-  String? driverCurrentRideId;
-  Map<String, dynamic>? driverAssignedRide;
+  String? driverRideId;
+  Map<String, dynamic>? driverRide;
 
-  // rider state
-  String? riderCurrentRideId;
+  // rider
   Map<String, dynamic>? riderRide;
 
   Map<String, dynamic>? stats;
 
-  void connect(String baseUrl, String role_, String name_) {
-    role = role_;
-    name = name_;
-    socket = IO.io(baseUrl, IO.OptionBuilder()
+  void connect() {
+    if (socket != null) {
+      socket!.dispose();
+      socket = null;
+    }
+    socket = IO.io(serverUrl, IO.OptionBuilder()
         .setTransports(['websocket'])
         .disableAutoConnect()
         .build());
@@ -34,32 +49,28 @@ class AppState extends ChangeNotifier {
     socket!.onConnect((_) {
       socket!.emit('register', {'role': role, 'name': name});
     });
-    socket!.on('registered', (data) {
-      isRegistered = true;
-      notifyListeners();
-    });
-    socket!.on('stats', (data) {
-      stats = Map<String, dynamic>.from(data);
-      notifyListeners();
-    });
-    // Rider events
+    socket!.on('registered', (_) { registered = true; notifyListeners(); });
+    socket!.on('stats', (data) { stats = Map<String, dynamic>.from(data); notifyListeners(); });
+
+    // rider updates
     socket!.on('ride:update', (data) {
       riderRide = Map<String, dynamic>.from(data);
-      riderCurrentRideId = riderRide!['id'];
       notifyListeners();
     });
-    // Driver events
+
+    // driver updates
     socket!.on('driver:rideOffer', (data) {
-      driverAssignedRide = Map<String, dynamic>.from(data);
+      driverRide = Map<String, dynamic>.from(data);
+      driverRideId = driverRide!['id'];
       notifyListeners();
     });
     socket!.on('driver:rideAssigned', (data) {
-      driverAssignedRide = Map<String, dynamic>.from(data);
-      driverCurrentRideId = driverAssignedRide!['id'];
+      driverRide = Map<String, dynamic>.from(data);
+      driverRideId = driverRide!['id'];
       notifyListeners();
     });
     socket!.on('driver:rideUpdate', (data) {
-      driverAssignedRide = Map<String, dynamic>.from(data);
+      driverRide = Map<String, dynamic>.from(data);
       notifyListeners();
     });
   }
@@ -70,36 +81,26 @@ class AppState extends ChangeNotifier {
     notifyListeners();
   }
 
-  void requestRide(String pickup, String dropoff) {
-    socket?.emit('rider:requestRide', {'pickup': pickup, 'dropoff': dropoff});
+  void requestRide(String pickup, String drop) {
+    socket?.emit('rider:requestRide', {'pickup': pickup, 'dropoff': drop});
   }
 
-  void driverAcceptRide(String rideId) {
-    socket?.emit('driver:acceptRide', {'rideId': rideId});
+  void driverAccept() {
+    if (driverRideId != null) {
+      socket?.emit('driver:acceptRide', {'rideId': driverRideId});
+    }
   }
 
-  void startRide(String rideId) {
-    socket?.emit('ride:start', {'rideId': rideId});
+  void startRide() {
+    if (driverRideId != null) {
+      socket?.emit('ride:start', {'rideId': driverRideId});
+    }
   }
 
-  void completeRide(String rideId) {
-    socket?.emit('ride:complete', {'rideId': rideId});
-  }
-}
-
-class MyApp extends StatelessWidget {
-  const MyApp({super.key});
-
-  @override
-  Widget build(BuildContext context) {
-    return ChangeNotifierProvider(
-      create: (_) => AppState(),
-      child: MaterialApp(
-        title: 'Mini Uber',
-        home: const EntryScreen(),
-        theme: ThemeData(useMaterial3: true),
-      ),
-    );
+  void completeRide() {
+    if (driverRideId != null) {
+      socket?.emit('ride:complete', {'rideId': driverRideId});
+    }
   }
 }
 
@@ -111,13 +112,13 @@ class EntryScreen extends StatefulWidget {
 
 class _EntryScreenState extends State<EntryScreen> {
   final nameCtrl = TextEditingController(text: 'Mugurel');
+  final serverCtrl = TextEditingController(text: 'http://192.168.0.100:4000');
   String role = 'rider';
-  final serverCtrl = TextEditingController(text: 'http://localhost:4000');
 
   @override
   Widget build(BuildContext context) {
     final app = context.watch<AppState>();
-    if (app.isRegistered) {
+    if (app.registered) {
       return role == 'driver' ? const DriverHome() : const RiderHome();
     }
     return Scaffold(
@@ -127,10 +128,7 @@ class _EntryScreenState extends State<EntryScreen> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            TextField(
-              controller: nameCtrl,
-              decoration: const InputDecoration(labelText: 'Nume'),
-            ),
+            TextField(controller: nameCtrl, decoration: const InputDecoration(labelText: 'Nume')),
             const SizedBox(height: 8),
             DropdownButtonFormField<String>(
               value: role,
@@ -142,19 +140,20 @@ class _EntryScreenState extends State<EntryScreen> {
               decoration: const InputDecoration(labelText: 'Rol'),
             ),
             const SizedBox(height: 8),
-            TextField(
-              controller: serverCtrl,
-              decoration: const InputDecoration(labelText: 'Server URL (Socket.IO)'),
-            ),
+            TextField(controller: serverCtrl, decoration: const InputDecoration(labelText: 'Server URL (ex: http://IP_PC:4000)')),
             const SizedBox(height: 16),
             ElevatedButton(
               onPressed: () {
-                context.read<AppState>().connect(serverCtrl.text.trim(), role, nameCtrl.text.trim());
+                final st = context.read<AppState>();
+                st.name = nameCtrl.text.trim().isEmpty ? 'Mugurel' : nameCtrl.text.trim();
+                st.role = role;
+                st.serverUrl = serverCtrl.text.trim();
+                st.connect();
               },
               child: const Text('Intră în aplicație'),
             ),
-            const SizedBox(height: 16),
-            const Text('Instrucțiuni: pornește mai întâi serverul Node.js.'),
+            const SizedBox(height: 8),
+            const Text('Pornește întâi serverul Node și folosește IP-ul PC-ului (nu localhost).'),
           ],
         ),
       ),
@@ -171,18 +170,17 @@ class RiderHome extends StatefulWidget {
 class _RiderHomeState extends State<RiderHome> {
   final pickupCtrl = TextEditingController(text: 'Primărie');
   final dropCtrl = TextEditingController(text: 'Gara');
-
   @override
   Widget build(BuildContext context) {
     final app = context.watch<AppState>();
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Client – Cere cursă'),
+        title: const Text('Client - Cere cursă'),
         actions: [
           if (app.stats != null)
             Padding(
               padding: const EdgeInsets.all(12.0),
-              child: Center(child: Text('Șoferi online: ${app.stats!['driversOnline']}')),
+              child: Center(child: Text('Șoferi online: ${app.stats!['driversOnline'] ?? 0}')),
             )
         ],
       ),
@@ -191,48 +189,21 @@ class _RiderHomeState extends State<RiderHome> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            TextField(
-              controller: pickupCtrl,
-              decoration: const InputDecoration(labelText: 'Punct ridicare (text)'),
-            ),
+            TextField(controller: pickupCtrl, decoration: const InputDecoration(labelText: 'Punct ridicare')),
             const SizedBox(height: 8),
-            TextField(
-              controller: dropCtrl,
-              decoration: const InputDecoration(labelText: 'Destinație (text)'),
-            ),
+            TextField(controller: dropCtrl, decoration: const InputDecoration(labelText: 'Destinație')),
             const SizedBox(height: 16),
-            ElevatedButton(
-              onPressed: () {
-                app.requestRide(pickupCtrl.text.trim(), dropCtrl.text.trim());
-              },
-              child: const Text('Cere cursă'),
-            ),
+            ElevatedButton(onPressed: () => app.requestRide(pickupCtrl.text, dropCtrl.text), child: const Text('Cere cursă')),
             const SizedBox(height: 16),
-            if (app.riderRide != null) RideCard(ride: app.riderRide!),
-          ],
-        ),
-      ),
-    );
-  }
-}
-
-class RideCard extends StatelessWidget {
-  final Map<String, dynamic> ride;
-  const RideCard({super.key, required this.ride});
-
-  @override
-  Widget build(BuildContext context) {
-    final status = ride['status'];
-    return Card(
-      child: Padding(
-        padding: const EdgeInsets.all(12),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text('Cursă #${ride['id']}', style: const TextStyle(fontWeight: FontWeight.bold)),
-            Text('De la: ${ride['pickup']}'),
-            Text('La: ${ride['dropoff']}'),
-            Text('Status: $status'),
+            if (app.riderRide != null) Card(
+              child: Padding(
+                padding: const EdgeInsets.all(12),
+                child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                  Text('Cursă #${app.riderRide!['id'] ?? '-'}', style: const TextStyle(fontWeight: FontWeight.bold)),
+                  Text('Status: ${app.riderRide!['status']}'),
+                ]),
+              ),
+            ),
           ],
         ),
       ),
@@ -242,107 +213,42 @@ class RideCard extends StatelessWidget {
 
 class DriverHome extends StatelessWidget {
   const DriverHome({super.key});
-
   @override
   Widget build(BuildContext context) {
     final app = context.watch<AppState>();
-    final assigned = app.driverAssignedRide;
-    final currentId = app.driverCurrentRideId;
-
+    final ride = app.driverRide;
     return Scaffold(
-      appBar: AppBar(title: const Text('Șofer – Dispatcher')),
+      appBar: AppBar(title: const Text('Șofer - Dispatcher')),
       body: Padding(
         padding: const EdgeInsets.all(16),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
-              children: [
-                const Text('Online'),
-                const SizedBox(width: 8),
-                Switch(
-                  value: app.driverOnline,
-                  onChanged: (v) => app.setDriverOnline(v),
-                ),
-              ],
+        child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          Row(children: [
+            const Text('Online'),
+            const SizedBox(width: 8),
+            Switch(value: app.driverOnline, onChanged: (v) => app.setDriverOnline(v)),
+          ]),
+          const SizedBox(height: 8),
+          if (app.stats != null) Text('Rideri: ${app.stats!['ridersTotal']}, Șoferi online: ${app.stats!['driversOnline']}'),
+          const SizedBox(height: 16),
+          if (ride == null) const Text('Aștept cerere...'),
+          if (ride != null) Card(
+            child: Padding(
+              padding: const EdgeInsets.all(12),
+              child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                Text('Cerere #${ride['id']}', style: const TextStyle(fontWeight: FontWeight.bold)),
+                Text('Pickup: ${ride['pickup']}'),
+                Text('Dropoff: ${ride['dropoff']}'),
+                const SizedBox(height: 12),
+                if (ride['status'] == null || ride['status'] == 'searching')
+                  ElevatedButton(onPressed: app.driverAccept, child: const Text('Acceptă')),
+                if (ride['status'] == 'assigned')
+                  ElevatedButton(onPressed: app.startRide, child: const Text('Pornire cursă')),
+                if (ride['status'] == 'in_progress')
+                  ElevatedButton(onPressed: app.completeRide, child: const Text('Finalizează cursa')),
+              ]),
             ),
-            const SizedBox(height: 8),
-            if (app.stats != null) Text('Rideri: ${app.stats!['ridersTotal']}, Șoferi online: ${app.stats!['driversOnline']}'),
-            const SizedBox(height: 16),
-            if (assigned != null && currentId == null) OfferCard(offer: assigned),
-            if (assigned != null && currentId != null) ActiveRideCard(),
-          ],
-        ),
-      ),
-    );
-  }
-}
-
-class OfferCard extends StatelessWidget {
-  final Map<String, dynamic> offer;
-  const OfferCard({super.key, required this.offer});
-
-  @override
-  Widget build(BuildContext context) {
-    final app = context.watch<AppState>();
-    return Card(
-      child: Padding(
-        padding: const EdgeInsets.all(12),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            const Text('Cerere nouă', style: TextStyle(fontWeight: FontWeight.bold)),
-            Text('Client: ${offer['riderName']}'),
-            Text('Pickup: ${offer['pickup']}'),
-            Text('Dropoff: ${offer['dropoff']}'),
-            const SizedBox(height: 12),
-            Row(
-              children: [
-                ElevatedButton(
-                  onPressed: () => app.driverAcceptRide(offer['id']),
-                  child: const Text('Acceptă'),
-                ),
-              ],
-            )
-          ],
-        ),
-      ),
-    );
-  }
-}
-
-class ActiveRideCard extends StatelessWidget {
-  const ActiveRideCard({super.key});
-
-  @override
-  Widget build(BuildContext context) {
-    final app = context.watch<AppState>();
-    final ride = app.driverAssignedRide ?? {};
-    final status = ride['status'];
-    final id = ride['id'];
-    return Card(
-      child: Padding(
-        padding: const EdgeInsets.all(12),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text('Cursă activă #$id', style: const TextStyle(fontWeight: FontWeight.bold)),
-            Text('Pickup: ${ride['pickup']}'),
-            Text('Dropoff: ${ride['dropoff']}'),
-            Text('Status: $status'),
-            const SizedBox(height: 12),
-            if (status == 'assigned')
-              ElevatedButton(
-                onPressed: () => app.startRide(id),
-                child: const Text('Pornire cursă'),
-              ),
-            if (status == 'in_progress')
-              ElevatedButton(
-                onPressed: () => app.completeRide(id),
-                child: const Text('Finalizează cursa'),
-              ),
-          ],
-        ),
+          ),
+        ]),
       ),
     );
   }
