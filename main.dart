@@ -11,6 +11,7 @@ class MyApp extends StatelessWidget {
     return ChangeNotifierProvider(
       create: (_) => AppState(),
       child: MaterialApp(
+        debugShowCheckedModeBanner: false,
         title: 'Mini Uber',
         theme: ThemeData(useMaterial3: true),
         home: const EntryScreen(),
@@ -22,29 +23,20 @@ class MyApp extends StatelessWidget {
 class AppState extends ChangeNotifier {
   String role = 'rider'; // rider/driver
   String name = 'Mugurel';
-  String serverUrl = 'http://192.168.0.100:4000'; // schimbă cu IP-ul PC-ului tău!
+  String serverUrl = 'http://192.168.0.100:4000'; // <- schimbă la login
   IO.Socket? socket;
   bool registered = false;
 
-  // driver
   bool driverOnline = false;
   String? driverRideId;
   Map<String, dynamic>? driverRide;
-
-  // rider
   Map<String, dynamic>? riderRide;
-
   Map<String, dynamic>? stats;
 
   void connect() {
-    if (socket != null) {
-      socket!.dispose();
-      socket = null;
-    }
+    socket?.dispose();
     socket = IO.io(serverUrl, IO.OptionBuilder()
-        .setTransports(['websocket'])
-        .disableAutoConnect()
-        .build());
+        .setTransports(['websocket']).disableAutoConnect().build());
     socket!.connect();
     socket!.onConnect((_) {
       socket!.emit('register', {'role': role, 'name': name});
@@ -112,7 +104,7 @@ class EntryScreen extends StatefulWidget {
 
 class _EntryScreenState extends State<EntryScreen> {
   final nameCtrl = TextEditingController(text: 'Mugurel');
-  final serverCtrl = TextEditingController(text: 'http://192.168.0.100:4000');
+  final serverCtrl = TextEditingController(text: 'http://192.168.0.100:4000'); // <- IP PC
   String role = 'rider';
 
   @override
@@ -153,7 +145,7 @@ class _EntryScreenState extends State<EntryScreen> {
               child: const Text('Intră în aplicație'),
             ),
             const SizedBox(height: 8),
-            const Text('Pornește întâi serverul Node și folosește IP-ul PC-ului (nu localhost).'),
+            const Text('Telefonul și PC-ul trebuie pe același Wi-Fi.'),
           ],
         ),
       ),
@@ -201,6 +193,8 @@ class _RiderHomeState extends State<RiderHome> {
                 child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
                   Text('Cursă #${app.riderRide!['id'] ?? '-'}', style: const TextStyle(fontWeight: FontWeight.bold)),
                   Text('Status: ${app.riderRide!['status']}'),
+                  Text('Pickup: ${app.riderRide!['pickup']}'),
+                  Text('Dropoff: ${app.riderRide!['dropoff']}'),
                 ]),
               ),
             ),
