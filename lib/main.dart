@@ -36,7 +36,11 @@ class AppState extends ChangeNotifier {
   void connect() {
     socket?.dispose();
     socket = IO.io(serverUrl, IO.OptionBuilder()
-        .setTransports(['websocket']).disableAutoConnect().build());
+        socket = IO.io(serverUrl, IO.OptionBuilder()
+    .setTransports(['websocket','polling'])  // permite și fallback
+    .disableAutoConnect()
+    .build());
+
     socket!.connect();
     socket!.onConnect((_) {
       socket!.emit('register', {'role': role, 'name': name});
